@@ -34,7 +34,9 @@ app.listen(3000, () => {
 
 app.use("/webhook", express.raw({ type: "application/json" }));
 app.use(express.json());
-
+app.get("/", (req, res) => {
+  res.send("Hello World!");
+});
 const sendPassportToStripe = (userId, side) => {
   return new Promise((resolve) => {
     const tempFilePath = tmp.tmpNameSync();
