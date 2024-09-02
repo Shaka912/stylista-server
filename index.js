@@ -7,20 +7,34 @@ const engines = require("consolidate");
 const tmp = require("tmp");
 const fs = require("fs");
 const { Storage } = require("@google-cloud/storage");
-var key = require("./privatekey.json");
 const bodyParser = require("body-parser");
-const { GoogleAuth } = require("google-auth-library");
-const path = require("path");
+const auth = require("./AuthMiddleware");
+var jwt = require("jsonwebtoken");
+const SECRET_KEY = process.env.SECRET_KEY;
 
 const app = express();
 app.engine("hbs", engines.handlebars);
 app.set("views", "./views");
 app.set("view engine", "hbs");
 
+const serviceaccountkey = {
+  type: process.env.type,
+  project_id: process.env.project_id,
+  private_key_id: process.env.private_key_id,
+  private_key: process.env.private_key,
+  client_email: process.env.client_email,
+  client_id: process.env.client_id,
+  auth_uri: process.env.auth_uri,
+  token_uri: process.env.token_uri,
+  auth_provider_x509_cert_url: process.env.auth_provider_x509_cert_url,
+  client_x509_cert_url: process.env.client_x509_cert_url,
+  universe_domain: process.env.universe_domain,
+};
+
 admin.initializeApp({
-  databaseURL: "https://stylistasapp7-default-rtdb.firebaseio.com",
-  storageBucket: "gs://stylistasapp7.appspot.com",
-  credential: admin.credential.cert(key),
+  databaseURL: process.env.databaseURL,
+  storageBucket: process.env.storageBucket,
+  credential: admin.credential.cert(serviceaccountkey),
 });
 
 const db = admin.database();
@@ -34,9 +48,7 @@ app.listen(3000, () => {
 
 app.use("/webhook", express.raw({ type: "application/json" }));
 app.use(express.json());
-app.get("/", (req, res) => {
-  res.send("Hello World!");
-});
+
 const sendPassportToStripe = (userId, side) => {
   return new Promise((resolve) => {
     const tempFilePath = tmp.tmpNameSync();
@@ -64,7 +76,32 @@ const sendPassportToStripe = (userId, side) => {
   });
 };
 
-app.post("/createStripeAccount", async (req, res) => {
+app.post("/login", async (req, res) => {
+  try {
+    const { userid, role } = req.body;
+    const data = {
+      user: {
+        id: userid,
+        role: role,
+      },
+    };
+    var token = jwt.sign(data, SECRET_KEY);
+    return res.status(200).json({
+      message: "User Login Success",
+      data: {
+        token: token,
+      },
+      status: 200,
+    });
+  } catch (error) {
+    return response.status(400).json({
+      message: "User Failed to Login",
+      status: 400,
+    });
+  }
+});
+
+app.post("/createStripeAccount", auth, async (req, res) => {
   try {
     let {
       data,
@@ -131,7 +168,7 @@ app.post("/createStripeAccount", async (req, res) => {
   }
 });
 
-app.post("/createCardForStripeAccountRedirect", async (req, res) => {
+app.post("/createCardForStripeAccountRedirect", auth, async (req, res) => {
   try {
     let { accountId } = req.body;
     // Retrieve the Stripe account information
@@ -165,7 +202,7 @@ app.post("/createCardForStripeAccountRedirect", async (req, res) => {
 //   }
 // });
 
-app.post("/createtoken", async (req, res) => {
+app.post("/createtoken", auth, async (req, res) => {
   try {
     const token = await stripe.tokens.create({
       bank_account: {
@@ -181,7 +218,7 @@ app.post("/createtoken", async (req, res) => {
   }
 });
 
-app.post("/create-payment-link", async (req, res) => {
+app.post("/create-payment-link", auth, async (req, res) => {
   try {
     let { accountId, amount, docId, seller_id } = req.body;
     const stripeAccountId = accountId;
@@ -209,7 +246,7 @@ app.post("/create-payment-link", async (req, res) => {
   }
 });
 
-app.post("/deleteacc", async (req, res) => {
+app.post("/deleteacc", auth, async (req, res) => {
   try {
     let { accountId } = req.body;
     const deleted = await stripe.accounts.del(accountId);
@@ -219,7 +256,7 @@ app.post("/deleteacc", async (req, res) => {
   }
 });
 
-app.post("/getaccount", async (req, res) => {
+app.post("/getaccount", auth, async (req, res) => {
   try {
     let { accountId } = req.body;
     const account = await stripe.accounts.retrieve(accountId);
@@ -232,7 +269,7 @@ app.post("/getaccount", async (req, res) => {
   }
 });
 
-app.post("/updateaccount", async (req, res) => {
+app.post("/updateaccount", auth, async (req, res) => {
   try {
     let { accountId, data } = req.body;
     const account = await stripe.accounts.update(accountId, data);
@@ -243,7 +280,7 @@ app.post("/updateaccount", async (req, res) => {
   }
 });
 
-app.post("/externalaccount", async (req, res) => {
+app.post("/externalaccount", auth, async (req, res) => {
   try {
     let { accountId } = req.body;
     const account = await stripe.accounts.retrieve(accountId);
@@ -257,7 +294,7 @@ app.post("/externalaccount", async (req, res) => {
   }
 });
 
-app.post("/refund-charge-artist", async (req, res) => {
+app.post("/refund-charge-artist", auth, async (req, res) => {
   try {
     const { visitId, paymentId, userId } = req.body;
     const userDoc = await fstore.collection("users").doc(userId).get();
@@ -275,9 +312,10 @@ app.post("/refund-charge-artist", async (req, res) => {
       description: `${userData.name} has been cancelled your schedule visit`,
       date: new Date(),
       visitId: visitId,
-      isSeen: false,
       userId: userId,
       userImage: userData.image,
+      isSeenByUser:false,
+      isSeenbySeller:false,
     };
 
     await fstore.collection("notifications").add(notificationData);
@@ -286,7 +324,7 @@ app.post("/refund-charge-artist", async (req, res) => {
       const message = {
         notification: {
           title: "Cancelled visit",
-          body: "Your Shedule has been cancelled",
+          body: "Your Shedule Visit has been cancelled",
         },
         data: {
           url: userData.image,
@@ -324,7 +362,7 @@ app.post("/refund-charge-artist", async (req, res) => {
   }
 });
 
-app.post("/refund-charge-client", async (req, res) => {
+app.post("/refund-charge-client", auth, async (req, res) => {
   try {
     const { visitId, paymentId, userId } = req.body;
 
@@ -343,9 +381,10 @@ app.post("/refund-charge-client", async (req, res) => {
       description: `${userData.name} has cancelled your scheduled visit`,
       date: new Date(),
       visitId: visitId,
-      isSeen: false,
       userId: userId,
       userImage: userData.image,
+      isSeenByUser:false,
+      isSeenbySeller:false,
     };
 
     await fstore.collection("notifications").add(notificationData);
@@ -354,7 +393,7 @@ app.post("/refund-charge-client", async (req, res) => {
       const message = {
         notification: {
           title: "Cancelled visit",
-          body: "Your Shedule has been cancelled",
+          body: "Your Shedule Visit has been cancelled",
         },
         data: {
           url: userData.image,
@@ -392,6 +431,33 @@ app.post("/refund-charge-client", async (req, res) => {
   }
 });
 
+app.post("/payout", auth, async (req, res) => {
+  try {
+    const { seller_id, visitId } = req.body;
+    const stripeinfo = await fstore
+      .collection("stripe_data")
+      .doc(seller_id)
+      .get();
+    const visitDoc = await fstore.collection("visit").doc(visitId).get();
+
+    // Create a manual payout
+    const payout = await stripe.payouts.create(
+      {
+        amount: visitDoc.data().total * 100,
+        currency: "usd",
+      },
+      {
+        stripeAccount: stripeinfo.data().stripe_id,
+      }
+    );
+
+    res.status(200).send({ payout, message: "Success", status: 200 });
+  } catch (err) {
+    console.error("Error in creating manual payout:", err);
+    res.status(500).send({ error: err.message, status: 400 });
+  }
+});
+
 const sendNotification = async (userId, visitId, title, body) => {
   try {
     // Fetch the user's document from the Firestore collection using userId
@@ -405,6 +471,18 @@ const sendNotification = async (userId, visitId, title, body) => {
     // Extract the user's FCM token from the document
     const userData = userDoc.data();
     const token = userData.fcmToken; // Ensure 'fcmToken' exists in the user's document
+    const notificationData = {
+      title: "Visit",
+      description: `${userData.name} has Send a shedule visit`,
+      date: new Date(),
+      visitId: visitId,
+      userId: userId,
+      userImage: userData.image,
+      isSeenByUser:false,
+      isSeenbySeller:false,
+    };
+
+    await fstore.collection("notifications").add(notificationData);
 
     if (!token) {
       console.log("FCM token not found");
@@ -425,18 +503,6 @@ const sendNotification = async (userId, visitId, title, body) => {
     };
 
     await admin.messaging().send(message);
-
-    const notificationData = {
-      title: "Visit",
-      description: `${userData.name} has Send a shedule visit`,
-      date: new Date(),
-      visitId: visitId,
-      isSeen: false,
-      userId: userId,
-      userImage: userData.image,
-    };
-
-    await fstore.collection("notifications").add(notificationData);
 
     return true;
   } catch (error) {
@@ -541,9 +607,10 @@ app.post("/test", async (req, res) => {
       description: `${userData.name} has Send a shedule visit`,
       date: new Date(),
       visitId: visitId,
-      isSeen: false,
       userId: userId,
       userImage: userData.image,
+      isSeenByUser:false,
+      isSeenbySeller:false,
     };
 
     await fstore.collection("notifications").add(notificationData);
@@ -561,4 +628,3 @@ app.post("/test", async (req, res) => {
     });
   }
 });
-// Lambda Handl
