@@ -314,8 +314,7 @@ app.post("/refund-charge-artist", auth, async (req, res) => {
       visitId: visitId,
       userId: userId,
       userImage: userData.image,
-      isSeenByUser:false,
-      isSeenbySeller:false,
+      isSeen: false,
     };
 
     await fstore.collection("notifications").add(notificationData);
@@ -383,8 +382,7 @@ app.post("/refund-charge-client", auth, async (req, res) => {
       visitId: visitId,
       userId: userId,
       userImage: userData.image,
-      isSeenByUser:false,
-      isSeenbySeller:false,
+      isSeen: false,
     };
 
     await fstore.collection("notifications").add(notificationData);
@@ -478,8 +476,7 @@ const sendNotification = async (userId, visitId, title, body) => {
       visitId: visitId,
       userId: userId,
       userImage: userData.image,
-      isSeenByUser:false,
-      isSeenbySeller:false,
+      isSeen: false,
     };
 
     await fstore.collection("notifications").add(notificationData);
@@ -609,8 +606,7 @@ app.post("/test", async (req, res) => {
       visitId: visitId,
       userId: userId,
       userImage: userData.image,
-      isSeenByUser:false,
-      isSeenbySeller:false,
+      isSeen: false,
     };
 
     await fstore.collection("notifications").add(notificationData);
