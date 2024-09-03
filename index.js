@@ -45,7 +45,9 @@ const notification = admin.messaging();
 app.listen(3000, () => {
   console.log("listening on", 3000);
 });
-
+app.get("/", (req, res) => {
+  res.send("Hello World!");
+});
 app.use("/webhook", express.raw({ type: "application/json" }));
 app.use(express.json());
 
