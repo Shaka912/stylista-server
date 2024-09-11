@@ -117,14 +117,13 @@ app.post("/createStripeAccount", auth, async (req, res) => {
       account_type,
     } = req.body;
 
+    // Upload passport images
     const frontPassport = await sendPassportToStripe(userId, "front");
-
     const backPassport = await sendPassportToStripe(userId, "back");
 
     data.individual.verification.document.front = frontPassport.id;
     data.individual.verification.document.back = backPassport.id;
 
-    // Set the payout schedule to manual
     data.settings = {
       payouts: {
         schedule: {
@@ -133,11 +132,11 @@ app.post("/createStripeAccount", auth, async (req, res) => {
       },
     };
 
+    // Create the Stripe account
     const account = await stripe.accounts.create(data);
-    const balance = await stripe.balance.retrieve({
-      stripeAccount: account.id,
-    });
-    if (type == "bank") {
+
+    // Handle bank or card accounts
+    if (type === "bank") {
       const bank_account = {
         country: country,
         account_number: accountnumber,
@@ -160,13 +159,20 @@ app.post("/createStripeAccount", auth, async (req, res) => {
         external_account: cardToken,
       });
     }
-    // const latestacc = await stripe.accounts.retrieve(account.id);
-    // const status = latestacc.individual?.verification?.status;
 
+    // Retrieve the balance
+    const balance = await stripe.balance.retrieve({
+      stripeAccount: account.id,
+    });
+
+    // Respond with account and balance details
     res.send({ account, balance });
   } catch (err) {
-    res.send({ err });
     console.log(err);
+    return res.status(400).json({
+      status: 400,
+      message: err.message,
+    });
   }
 });
 
@@ -226,11 +232,14 @@ app.post("/create-payment-link", auth, async (req, res) => {
     const stripeAccountId = accountId;
     const totalAmount = parseInt(amount) * 100;
     const feeAmount = Math.round(totalAmount * 0.07);
+
+    // Create a PaymentIntent with manual capture (hold money)
     const paymentIntent = await stripe.paymentIntents.create({
       amount: totalAmount,
       currency: "usd",
       payment_method_types: ["card"],
       application_fee_amount: feeAmount,
+      capture_method: "manual", // This will authorize but not capture funds
       transfer_data: {
         destination: stripeAccountId,
       },
@@ -258,7 +267,7 @@ app.post("/deleteacc", auth, async (req, res) => {
   }
 });
 
-app.post("/getaccount", auth, async (req, res) => {
+app.post("/getaccount", async (req, res) => {
   try {
     let { accountId } = req.body;
     const account = await stripe.accounts.retrieve(accountId);
@@ -311,7 +320,7 @@ app.post("/refund-charge-artist", auth, async (req, res) => {
 
     const notificationData = {
       title: "Cancelled visit",
-      description: `${userData.name} has been cancelled your schedule visit`,
+      description: `${userData.name} has cancelled your schedule visit`,
       date: new Date(),
       visitId: visitId,
       userId: userId,
@@ -319,7 +328,10 @@ app.post("/refund-charge-artist", auth, async (req, res) => {
       isSeen: false,
     };
 
-    await fstore.collection("notifications").add(notificationData);
+    const notificationRef = await fstore
+      .collection("notifications")
+      .add(notificationData);
+    const notificationId = notificationRef.id;
 
     if (token) {
       const message = {
@@ -330,6 +342,7 @@ app.post("/refund-charge-artist", auth, async (req, res) => {
         data: {
           url: userData.image,
           visitId: visitId,
+          notificationId: notificationId,
         },
         token: token,
       };
@@ -348,6 +361,14 @@ app.post("/refund-charge-artist", auth, async (req, res) => {
       status: false,
       visit_status: "cancelled",
     });
+
+    // Retrieve the PaymentIntent
+    const paymentIntent = await stripe.paymentIntents.retrieve(paymentId);
+
+    // If the payment is not captured, capture it first
+    if (paymentIntent.status === "requires_capture") {
+      await stripe.paymentIntents.capture(paymentId);
+    }
 
     const refund = await stripe.refunds.create({
       payment_intent: paymentId,
@@ -368,7 +389,6 @@ app.post("/refund-charge-client", auth, async (req, res) => {
     const { visitId, paymentId, userId } = req.body;
 
     const userDoc = await fstore.collection("users").doc(userId).get();
-
     if (!userDoc.exists) {
       console.log("User not found");
       return res.status(404).send({ error: "User not found" });
@@ -377,6 +397,7 @@ app.post("/refund-charge-client", auth, async (req, res) => {
     const userData = userDoc.data();
     const token = userData.fcmToken;
 
+    // Create notification for cancelled visit
     const notificationData = {
       title: "Cancelled visit",
       description: `${userData.name} has cancelled your scheduled visit`,
@@ -387,17 +408,22 @@ app.post("/refund-charge-client", auth, async (req, res) => {
       isSeen: false,
     };
 
-    await fstore.collection("notifications").add(notificationData);
+    const notificationRef = await fstore
+      .collection("notifications")
+      .add(notificationData);
+    const notificationId = notificationRef.id;
 
+    // Send notification via FCM if token exists
     if (token) {
       const message = {
         notification: {
           title: "Cancelled visit",
-          body: "Your Shedule Visit has been cancelled",
+          body: "Your Scheduled Visit has been cancelled",
         },
         data: {
           url: userData.image,
           visitId: visitId,
+          notificationId: notificationId,
         },
         token: token,
       };
@@ -417,13 +443,21 @@ app.post("/refund-charge-client", auth, async (req, res) => {
       visit_status: "cancelled",
     });
 
+    // Retrieve the PaymentIntent
+    const paymentIntent = await stripe.paymentIntents.retrieve(paymentId);
+
+    // If the payment is not captured, capture it first
+    if (paymentIntent.status === "requires_capture") {
+      await stripe.paymentIntents.capture(paymentId);
+    }
+
+    // After capturing, proceed to refund
     const refund = await stripe.refunds.create({
       payment_intent: paymentId,
       reason: "requested_by_customer",
-      refund_application_fee: false,
+      refund_application_fee: false, // Deduct application fee for client-side refunds
     });
 
-    console.log("Refund created:", refund);
     res.send({ refund });
   } catch (err) {
     console.error("Error in server:", err);
@@ -434,27 +468,19 @@ app.post("/refund-charge-client", auth, async (req, res) => {
 app.post("/payout", auth, async (req, res) => {
   try {
     const { seller_id, visitId } = req.body;
+
     const stripeinfo = await fstore
       .collection("stripe_data")
       .doc(seller_id)
       .get();
     const visitDoc = await fstore.collection("visit").doc(visitId).get();
-
-    // Create a manual payout
-    const payout = await stripe.payouts.create(
-      {
-        amount: visitDoc.data().total * 100,
-        currency: "usd",
-      },
-      {
-        stripeAccount: stripeinfo.data().stripe_id,
-      }
+    const paymentIntent = await stripe.paymentIntents.capture(
+      visitDoc.data().paymentIntent
     );
 
-    res.status(200).send({ payout, message: "Success", status: 200 });
+    res.status(200).send({ message: "Success", status: 200, paymentIntent });
   } catch (err) {
-    console.error("Error in creating manual payout:", err);
-    res.status(500).send({ error: err.message, status: 400 });
+    res.status(500).send({ error: err.message, status: 500 });
   }
 });
 
@@ -481,7 +507,10 @@ const sendNotification = async (userId, visitId, title, body) => {
       isSeen: false,
     };
 
-    await fstore.collection("notifications").add(notificationData);
+    const notificationRef = await fstore
+      .collection("notifications")
+      .add(notificationData);
+    const notificationId = notificationRef.id;
 
     if (!token) {
       console.log("FCM token not found");
@@ -497,6 +526,7 @@ const sendNotification = async (userId, visitId, title, body) => {
       data: {
         url: userData.image,
         visitId: visitId,
+        notificationId: notificationId,
       },
       token: token,
     };
@@ -527,8 +557,56 @@ app.post(
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
-    // Payment Intent Succeeded
-    if (event.type === "payment_intent.succeeded") {
+    // // Payment Intent Succeeded
+    // if (event.type === "payment_intent.succeeded") {
+    //   try {
+    //     const visitId = event.data.object?.metadata?.visit_id; // Ensure metadata contains visit_id
+    //     if (!visitId) {
+    //       console.log("visit_id not found in metadata");
+    //       return res.status(400).send("visit_id not found in metadata");
+    //     }
+
+    //     await fstore.collection("visit").doc(visitId).update({
+    //       status: true,
+    //       visit_status: "inprogress",
+    //       paymentIntent: event.data.object.id,
+    //     });
+
+    //     const notificationSent = await sendNotification(
+    //       event.data.object?.metadata?.seller_id,
+    //       visitId,
+    //       "Offer",
+    //       "You Got A New Notification"
+    //     );
+
+    //     if (!notificationSent) {
+    //       console.log("Failed to send notification");
+    //     }
+    //   } catch (error) {
+    //     console.error("Error handling webhook event:", error.message);
+    //     return res.status(500).send("Internal Server Error");
+    //   }
+    // }
+
+    if (event.type === "account.updated") {
+      const account = event.data.object;
+      const userId = event.data.object?.metadata?.user_id;
+
+      // Extract the updated values
+      const verificationStatus = account?.individual?.verification?.status;
+      const transferStatus = account?.capabilities?.transfers;
+      if (verificationStatus === "verified" && transferStatus == "active") {
+        await fstore.collection("users").doc(userId).update({
+          accountstatus: "verified",
+        });
+        await fstore.collection("stripe_data").doc(userId).update({
+          transfermoney: transferStatus,
+          verificationStatus: verificationStatus,
+        });
+      }
+    }
+
+    if (event.type == "payment_intent.amount_capturable_updated") {
       try {
         const visitId = event.data.object?.metadata?.visit_id; // Ensure metadata contains visit_id
         if (!visitId) {
@@ -561,7 +639,6 @@ app.post(
     return res.status(200).json({
       status: 200,
       message: "Success",
-      description: "Story created successfully",
     });
   }
 );
@@ -586,21 +663,6 @@ app.post("/test", async (req, res) => {
       return false;
     }
 
-    // Prepare the message
-    const message = {
-      notification: {
-        title: "Test",
-        body: "test notification",
-      },
-      data: {
-        url: userData.image,
-        visitId: visitId,
-      },
-      token: token,
-    };
-
-    await admin.messaging().send(message);
-
     const notificationData = {
       title: "Visit",
       description: `${userData.name} has Send a shedule visit`,
@@ -611,7 +673,25 @@ app.post("/test", async (req, res) => {
       isSeen: false,
     };
 
-    await fstore.collection("notifications").add(notificationData);
+    const notificationRef = await fstore
+      .collection("notifications")
+      .add(notificationData);
+    const notificationId = notificationRef.id;
+    // Prepare the message
+    const message = {
+      notification: {
+        title: "Test",
+        body: "test notification",
+      },
+      data: {
+        url: userData.image,
+        visitId: visitId,
+        notificationId: notificationId,
+      },
+      token: token,
+    };
+
+    await admin.messaging().send(message);
     return res.status(200).json({
       status: 200,
       message: "Success",
@@ -624,5 +704,65 @@ app.post("/test", async (req, res) => {
       message: "Success",
       description: "Story created successfully",
     });
+  }
+});
+
+app.post("/get-balance", auth, async (req, res) => {
+  try {
+    const { seller_id } = req.body;
+    const stripeinfo = await fstore
+      .collection("stripe_data")
+      .doc(seller_id)
+      .get();
+    // Get the Stripe balance for the connected account
+    const balance = await stripe.balance.retrieve({
+      stripeAccount: stripeinfo.data().stripe_id,
+    });
+    const availableBalance = balance.available[0].amount;
+    res
+      .status(200)
+      .json({ availableBalance, balanceFullavailable: balance.available });
+  } catch (error) {
+    console.error("Error retrieving balance:", error.message);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+});
+
+app.post("/withdraw", auth, async (req, res) => {
+  try {
+    const { seller_id, amount } = req.body;
+    const stripeinfo = await fstore
+      .collection("stripe_data")
+      .doc(seller_id)
+      .get();
+    const balance = await stripe.balance.retrieve({
+      stripeAccount: stripeinfo.data().stripe_id,
+    });
+
+    const availableBalance = balance.available[0].amount;
+    const requiredAmount = amount * 100;
+
+    if (availableBalance < requiredAmount) {
+      return res.status(400).send({
+        message: "Insufficient funds in the Stripe account for this payout.",
+        status: 400,
+      });
+    }
+
+    // Create a manual payout if balance is sufficient
+    const payout = await stripe.payouts.create(
+      {
+        amount: requiredAmount,
+        currency: balance.available[0].currency,
+      },
+      {
+        stripeAccount: stripeinfo.data().stripe_id,
+      }
+    );
+    console.log("Payout created:", payout);
+    res.status(200).json({ message: "Payout Created", payout, status: 200 });
+  } catch (error) {
+    console.error("Error withdrawing money:", error.message);
+    res.status(500).json({ message: "Internal Server Error" });
   }
 });
