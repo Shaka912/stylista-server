@@ -42,14 +42,178 @@ const fstore = admin.firestore();
 const bucket = admin.storage().bucket();
 const notification = admin.messaging();
 
+app.use("/webhook", express.raw({ type: "application/json" }));
+
+const STRIPE_ACCOUNT_WEBHOOK_SECRET = `${process.env.STRIPE_ACCOUNT_WEBHOOK_SECRET}`;
+
+app.post(
+  "/accountwebhook",
+  bodyParser.raw({ type: "application/json" }),
+  async (req, res) => {
+    const sig = req.headers["stripe-signature"];
+
+    let event;
+
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        STRIPE_ACCOUNT_WEBHOOK_SECRET
+      );
+    } catch (err) {
+      console.error("Error message: " + err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    if (event.type === "account.updated") {
+      const account = event.data.object;
+      const userId = event.data.object?.metadata?.user_id;
+
+      // Extract the updated values
+      const verificationStatus = account?.individual?.verification?.status;
+      const transferStatus = account?.capabilities?.transfers;
+      if (verificationStatus === "verified" && transferStatus == "active") {
+        await fstore.collection("users").doc(userId).update({
+          accountstatus: "verified",
+        });
+        await fstore.collection("stripe_data").doc(userId).update({
+          transfermoney: transferStatus,
+          verificationStatus: verificationStatus,
+        });
+        await accountNotification(userId);
+      }
+    }
+
+    return res.status(200).json({
+      status: 200,
+      message: "Success",
+    });
+  }
+);
+
+const sendNotification = async (userId, visitId, title, body) => {
+  try {
+    // Fetch the user's document from the Firestore collection using userId
+    const userDoc = await fstore.collection("users").doc(userId).get();
+
+    if (!userDoc.exists) {
+      console.log("User not found");
+      return false;
+    }
+
+    // Extract the user's FCM token from the document
+    const userData = userDoc.data();
+    const token = userData.fcmToken; // Ensure 'fcmToken' exists in the user's document
+    const notificationData = {
+      title: "Visit",
+      description: `${userData.name} has Send a shedule visit`,
+      date: new Date(),
+      visitId: visitId,
+      userId: userId,
+      userImage: userData.image,
+      isSeen: false,
+      type: "visit",
+    };
+
+    const notificationRef = await fstore
+      .collection("notifications")
+      .add(notificationData);
+    const notificationId = notificationRef.id;
+
+    if (!token) {
+      console.log("FCM token not found");
+      return false;
+    }
+
+    // Prepare the message
+    const message = {
+      notification: {
+        title: title,
+        body: body,
+      },
+      data: {
+        url: userData.image,
+        visitId: visitId,
+        notificationId: notificationId,
+        type: "visit",
+      },
+      token: token,
+    };
+
+    await admin.messaging().send(message);
+
+    return true;
+  } catch (error) {
+    console.error("Error sending notification:", error.message);
+    return false;
+  }
+};
+
+const STRIPE_PAYMENT_WEBHOOK_SECRET = `${process.env.STRIPE_PAYMENT_WEBHOOK_SECRET}`;
+
+app.post(
+  "/paymentwebhook",
+  bodyParser.raw({ type: "application/json" }),
+  async (req, res) => {
+    const sig = req.headers["stripe-signature"];
+
+    let event;
+
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        STRIPE_PAYMENT_WEBHOOK_SECRET
+      );
+    } catch (err) {
+      console.error("Error message: " + err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    if (event.type == "payment_intent.amount_capturable_updated") {
+      try {
+        const visitId = event.data.object?.metadata?.visit_id; // Ensure metadata contains visit_id
+        if (!visitId) {
+          console.log("visit_id not found in metadata");
+          return res.status(400).send("visit_id not found in metadata");
+        }
+
+        await fstore.collection("visit").doc(visitId).update({
+          status: true,
+          visit_status: "inprogress",
+          paymentIntent: event.data.object.id,
+        });
+
+        const notificationSent = await sendNotification(
+          event.data.object?.metadata?.seller_id,
+          visitId,
+          "Offer",
+          "You Got A New Notification"
+        );
+
+        if (!notificationSent) {
+          console.log("Failed to send notification");
+        }
+      } catch (error) {
+        console.error("Error handling webhook event:", error.message);
+        return res.status(500).send("Internal Server Error");
+      }
+    }
+
+    return res.status(200).json({
+      status: 200,
+      message: "Success",
+    });
+  }
+);
+app.use(express.json());
+
 app.listen(3000, () => {
   console.log("listening on", 3000);
 });
 app.get("/", (req, res) => {
   res.send("Hello World!");
 });
-app.use("/webhook", express.raw({ type: "application/json" }));
-app.use(express.json());
 
 const sendPassportToStripe = (userId, side) => {
   return new Promise((resolve) => {
@@ -532,7 +696,7 @@ const accountNotification = async (userId) => {
     const message = {
       notification: {
         title: "Congratulation",
-        description: `Your Account Has Been Verified Successfully`,
+        body: `Your Account Has Been Verified Successfully`,
       },
       data: {
         url: userData.image,
@@ -550,169 +714,6 @@ const accountNotification = async (userId) => {
     return false;
   }
 };
-
-const STRIPE_ACCOUNT_WEBHOOK_SECRET = `${process.env.STRIPE_ACCOUNT_WEBHOOK_SECRET}`;
-
-app.post(
-  "/accountwebhook",
-  bodyParser.raw({ type: "application/json" }),
-  async (req, res) => {
-    const sig = req.headers["stripe-signature"];
-
-    let event;
-
-    try {
-      event = stripe.webhooks.constructEvent(
-        req.body,
-        sig,
-        STRIPE_ACCOUNT_WEBHOOK_SECRET
-      );
-    } catch (err) {
-      console.error("Error message: " + err.message);
-      return res.status(400).send(`Webhook Error: ${err.message}`);
-    }
-
-    if (event.type === "account.updated") {
-      const account = event.data.object;
-      const userId = event.data.object?.metadata?.user_id;
-
-      // Extract the updated values
-      const verificationStatus = account?.individual?.verification?.status;
-      const transferStatus = account?.capabilities?.transfers;
-      if (verificationStatus === "verified" && transferStatus == "active") {
-        await fstore.collection("users").doc(userId).update({
-          accountstatus: "verified",
-        });
-        await fstore.collection("stripe_data").doc(userId).update({
-          transfermoney: transferStatus,
-          verificationStatus: verificationStatus,
-        });
-        await accountNotification(userId);
-      }
-    }
-
-    return res.status(200).json({
-      status: 200,
-      message: "Success",
-    });
-  }
-);
-
-const sendNotification = async (userId, visitId, title, body) => {
-  try {
-    // Fetch the user's document from the Firestore collection using userId
-    const userDoc = await fstore.collection("users").doc(userId).get();
-
-    if (!userDoc.exists) {
-      console.log("User not found");
-      return false;
-    }
-
-    // Extract the user's FCM token from the document
-    const userData = userDoc.data();
-    const token = userData.fcmToken; // Ensure 'fcmToken' exists in the user's document
-    const notificationData = {
-      title: "Visit",
-      description: `${userData.name} has Send a shedule visit`,
-      date: new Date(),
-      visitId: visitId,
-      userId: userId,
-      userImage: userData.image,
-      isSeen: false,
-      type: "visit",
-    };
-
-    const notificationRef = await fstore
-      .collection("notifications")
-      .add(notificationData);
-    const notificationId = notificationRef.id;
-
-    if (!token) {
-      console.log("FCM token not found");
-      return false;
-    }
-
-    // Prepare the message
-    const message = {
-      notification: {
-        title: title,
-        body: body,
-      },
-      data: {
-        url: userData.image,
-        visitId: visitId,
-        notificationId: notificationId,
-        type: "visit",
-      },
-      token: token,
-    };
-
-    await admin.messaging().send(message);
-
-    return true;
-  } catch (error) {
-    console.error("Error sending notification:", error.message);
-    return false;
-  }
-};
-
-const STRIPE_PAYMENT_WEBHOOK_SECRET = `${process.env.STRIPE_PAYMENT_WEBHOOK_SECRET}`;
-
-app.post(
-  "/paymentwebhook",
-  bodyParser.raw({ type: "application/json" }),
-  async (req, res) => {
-    const sig = req.headers["stripe-signature"];
-
-    let event;
-
-    try {
-      event = stripe.webhooks.constructEvent(
-        req.body,
-        sig,
-        STRIPE_PAYMENT_WEBHOOK_SECRET
-      );
-    } catch (err) {
-      console.error("Error message: " + err.message);
-      return res.status(400).send(`Webhook Error: ${err.message}`);
-    }
-
-    if (event.type == "payment_intent.amount_capturable_updated") {
-      try {
-        const visitId = event.data.object?.metadata?.visit_id; // Ensure metadata contains visit_id
-        if (!visitId) {
-          console.log("visit_id not found in metadata");
-          return res.status(400).send("visit_id not found in metadata");
-        }
-
-        await fstore.collection("visit").doc(visitId).update({
-          status: true,
-          visit_status: "inprogress",
-          paymentIntent: event.data.object.id,
-        });
-
-        const notificationSent = await sendNotification(
-          event.data.object?.metadata?.seller_id,
-          visitId,
-          "Offer",
-          "You Got A New Notification"
-        );
-
-        if (!notificationSent) {
-          console.log("Failed to send notification");
-        }
-      } catch (error) {
-        console.error("Error handling webhook event:", error.message);
-        return res.status(500).send("Internal Server Error");
-      }
-    }
-
-    return res.status(200).json({
-      status: 200,
-      message: "Success",
-    });
-  }
-);
 
 app.post("/test", async (req, res) => {
   try {
