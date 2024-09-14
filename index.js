@@ -228,15 +228,22 @@ app.post("/createtoken", auth, async (req, res) => {
 
 app.post("/create-payment-link", auth, async (req, res) => {
   try {
-    let { accountId, amount, docId, seller_id } = req.body;
+    let { accountId, amount, docId, seller_id, currency } = req.body;
     const stripeAccountId = accountId;
     const totalAmount = parseInt(amount) * 100;
     const feeAmount = Math.round(totalAmount * 0.07);
+    console.log({
+      accountId,
+      amount,
+      docId,
+      seller_id,
+      currency,
+    });
 
     // Create a PaymentIntent with manual capture (hold money)
     const paymentIntent = await stripe.paymentIntents.create({
       amount: totalAmount,
-      currency: "usd",
+      currency: currency.toLowerCase(),
       payment_method_types: ["card"],
       application_fee_amount: feeAmount,
       capture_method: "manual", // This will authorize but not capture funds
@@ -827,6 +834,19 @@ app.post("/withdraw", auth, async (req, res) => {
     res.status(200).json({ message: "Payout Created", payout, status: 200 });
   } catch (error) {
     console.error("Error withdrawing money:", error.message);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+});
+
+app.post("/currency", auth, async (req, res) => {
+  try {
+    const { getExchangeRate } = await import("./currencyService.mjs");
+    const { target_currency } = req.body;
+    const rate = await getExchangeRate("USD", target_currency);
+
+    res.status(200).json({ message: "Success", rate, status: 200 });
+  } catch (error) {
+    console.error("Error creating story:", error.message);
     res.status(500).json({ message: "Internal Server Error" });
   }
 });
