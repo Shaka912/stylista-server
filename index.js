@@ -395,14 +395,7 @@ app.post("/create-payment-link", auth, async (req, res) => {
     let { accountId, amount, docId, seller_id, currency } = req.body;
     const stripeAccountId = accountId;
     const totalAmount = parseInt(amount) * 100;
-    const feeAmount = Math.round(totalAmount * 0.07);
-    console.log({
-      accountId,
-      amount,
-      docId,
-      seller_id,
-      currency,
-    });
+    const feeAmount = Math.round(totalAmount * 0.1);
 
     // Create a PaymentIntent with manual capture (hold money)
     const paymentIntent = await stripe.paymentIntents.create({
@@ -430,13 +423,183 @@ app.post("/create-payment-link", auth, async (req, res) => {
 
 app.post("/deleteacc", auth, async (req, res) => {
   try {
-    let { accountId } = req.body;
-    const deleted = await stripe.accounts.del(accountId);
-    res.send({ deleted });
+    const { userId } = req.body;
+    const userDoc = await fstore.collection("users").doc(userId).get();
+    const userData = userDoc.data();
+
+    if (!userDoc.exists) {
+      return res.status(404).send({ message: "User not found" });
+    }
+
+    if (userData?.logintype === "email") {
+      if (userData?.accountstatus === "verified") {
+        // Deleting stripe account if exists
+        const stripe_data = await fstore
+          .collection("stripe_data")
+          .doc(userId)
+          .get();
+        const StripeData = stripe_data.data();
+        const stripeBalance = await stripe.balance.retrieve({
+          stripeAccount: StripeData?.stripe_id,
+        });
+        const availableBalance = stripeBalance.available[0]?.amount || 0;
+
+        // Check if the available balance is zero
+        if (availableBalance > 0) {
+          return res.status(400).send({
+            message: "Account balance is not zero, cannot delete the account.",
+            status: 400,
+          });
+        }
+
+        if (StripeData?.stripe_id) {
+          await stripe.accounts.del(StripeData.stripe_id);
+          await fstore.collection("stripe_data").doc(userId).delete();
+        }
+      }
+
+      // Delete user data, posts, post comments, portfolio, comments
+      await deleteUserData(userId, userData?.loginas);
+      await deleteChatrooms(userId);
+    } else if (userData?.logintype === "gmail") {
+      if (userData?.accountstatus === "verified") {
+        // Deleting stripe account if exists
+        const stripe_data = await fstore
+          .collection("stripe_data")
+          .doc(userId)
+          .get();
+        const StripeData = stripe_data.data();
+        const stripeBalance = await stripe.balance.retrieve({
+          stripeAccount: StripeData?.stripe_id,
+        });
+        const availableBalance = stripeBalance.available[0]?.amount || 0;
+
+        // Check if the available balance is zero
+        if (availableBalance > 0) {
+          return res.status(400).send({
+            message: "Account balance is not zero, cannot delete the account.",
+            status: 400,
+          });
+        }
+        if (StripeData?.stripe_id) {
+          await stripe.accounts.del(StripeData.stripe_id);
+          await fstore.collection("stripe_data").doc(userId).delete();
+        }
+      }
+
+      // Delete user data, posts, post comments, portfolio, comments
+      await deleteUserData(userId, userData?.loginas);
+      await deleteChatrooms(userId);
+
+      // Delete user from Firebase Authentication (Google-authenticated)
+      await admin.auth().deleteUser(userId);
+    }
+
+    res.send({
+      message: "Account and associated data deleted successfully",
+      status: 200,
+    });
   } catch (err) {
-    res.send({ err });
+    res.status(500).send({ err: err.message, status: 400 });
   }
 });
+
+// Function to delete user-related data
+async function deleteUserData(userId, usertype) {
+  const batch = fstore.batch();
+
+  // Delete user posts
+  const postsSnapshot = await fstore
+    .collection("posts")
+    .where("userid", "==", userId)
+    .get();
+  postsSnapshot.forEach((doc) => {
+    batch.delete(doc.ref);
+  });
+
+  // Delete user post comments
+  const postCommentsSnapshot = await fstore
+    .collection("post_comments")
+    .where("userId", "==", userId)
+    .get();
+  postCommentsSnapshot.forEach((doc) => {
+    batch.delete(doc.ref);
+  });
+
+  // Delete user portfolio
+  const portfolioSnapshot = await fstore
+    .collection("portfolio")
+    .where("userid", "==", userId)
+    .get();
+  portfolioSnapshot.forEach((doc) => {
+    batch.delete(doc.ref);
+  });
+
+  // Delete user comments
+  const commentsSnapshot = await fstore
+    .collection("comments")
+    .where("userId", "==", userId)
+    .get();
+  commentsSnapshot.forEach((doc) => {
+    batch.delete(doc.ref);
+  });
+
+  if (usertype == "seller") {
+    // Delete user comments
+    const visitsSnapshot = await fstore
+      .collection("visit")
+      .where("sellerid", "==", userId)
+      .get();
+    visitsSnapshot.forEach((doc) => {
+      batch.delete(doc.ref);
+    });
+  } else {
+    // Delete user visits
+    const visitsSnapshot = await fstore
+      .collection("visit")
+      .where("user_id", "==", userId)
+      .get();
+    visitsSnapshot.forEach((doc) => {
+      batch.delete(doc.ref);
+    });
+  }
+
+  // Finally delete the user document
+  batch.delete(fstore.collection("users").doc(userId));
+
+  // Commit the batch
+  await batch.commit();
+}
+
+// Function to delete chatrooms and related messages
+async function deleteChatrooms(userId) {
+  const batch = fstore.batch();
+
+  // Find all chatrooms where the user is a participant
+  const chatroomsSnapshot = await fstore
+    .collection("chatrooms")
+    .where("users", "array-contains", userId)
+    .get();
+
+  chatroomsSnapshot.forEach(async (chatroomDoc) => {
+    const chatroomId = chatroomDoc.id;
+
+    // Delete all messages in the chatroom
+    const messagesSnapshot = await fstore
+      .collection("messages")
+      .where("chatroomId", "==", chatroomId)
+      .get();
+    messagesSnapshot.forEach((messageDoc) => {
+      batch.delete(messageDoc.ref);
+    });
+
+    // Delete the chatroom itself
+    batch.delete(chatroomDoc.ref);
+  });
+
+  // Commit the batch deletion
+  await batch.commit();
+}
 
 app.post("/getaccount", async (req, res) => {
   try {
