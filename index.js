@@ -461,6 +461,7 @@ app.post("/deleteacc", auth, async (req, res) => {
       // Delete user data, posts, post comments, portfolio, comments
       await deleteUserData(userId, userData?.loginas);
       await deleteChatrooms(userId);
+      await admin.auth().deleteUser(userId);
     } else if (userData?.logintype === "gmail") {
       if (userData?.accountstatus === "verified") {
         // Deleting stripe account if exists
@@ -500,6 +501,7 @@ app.post("/deleteacc", auth, async (req, res) => {
       status: 200,
     });
   } catch (err) {
+    console.log("err",err)
     res.status(500).send({ err: err.message, status: 400 });
   }
 });
