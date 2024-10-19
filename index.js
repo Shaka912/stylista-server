@@ -268,6 +268,7 @@ app.post("/login", async (req, res) => {
 });
 
 app.post("/createStripeAccount", auth, async (req, res) => {
+  let account;
   try {
     let {
       data,
@@ -297,7 +298,7 @@ app.post("/createStripeAccount", auth, async (req, res) => {
     };
 
     // Create the Stripe account
-    const account = await stripe.accounts.create(data);
+    account = await stripe.accounts.create(data);
 
     // Handle bank or card accounts
     if (type === "bank") {
@@ -332,7 +333,17 @@ app.post("/createStripeAccount", auth, async (req, res) => {
     // Respond with account and balance details
     res.send({ account, balance });
   } catch (err) {
-    console.log(err);
+    if (account && account.id) {
+      try {
+        await stripe.accounts.del(account.id); // Delete the created Stripe account
+        console.log(`Deleted Stripe account: ${account.id}`);
+      } catch (deleteErr) {
+        console.error(
+          `Failed to delete Stripe account: ${account.id}`,
+          deleteErr
+        );
+      }
+    }
     return res.status(400).json({
       status: 400,
       message: err.message,
@@ -501,7 +512,7 @@ app.post("/deleteacc", auth, async (req, res) => {
       status: 200,
     });
   } catch (err) {
-    console.log("err",err)
+    console.log("err", err);
     res.status(500).send({ err: err.message, status: 400 });
   }
 });
