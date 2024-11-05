@@ -10,6 +10,7 @@ const { Storage } = require("@google-cloud/storage");
 const bodyParser = require("body-parser");
 const auth = require("./AuthMiddleware");
 var jwt = require("jsonwebtoken");
+const path = require("path");
 const SECRET_KEY = process.env.SECRET_KEY;
 
 const app = express();
@@ -1026,4 +1027,59 @@ app.post("/currency", auth, async (req, res) => {
     console.error("Error creating story:", error.message);
     res.status(500).json({ message: "Internal Server Error" });
   }
+});
+
+app.use("/deleteaccount", express.static(path.join(__dirname, "public")));
+app.post("/deleteinfoaccount", async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    const userSnapshot = await fstore
+      .collection("users")
+      .where("email", "==", email)
+      .get();
+
+    if (userSnapshot.empty) {
+      return res.status(404).json({
+        message: "User does not exist",
+        status: 404,
+      });
+    }
+
+    const requestSnapshot = await fstore
+      .collection("deletionRequests")
+      .where("email", "==", email)
+      .get();
+
+    if (!requestSnapshot.empty) {
+      return res.status(409).json({
+        message: "A deletion request has already been made for this email",
+        status: 409,
+      });
+    }
+
+    const requestData = {
+      email: email,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      message: "Request to delete account",
+    };
+
+    await fstore.collection("deletionRequests").add(requestData);
+
+    return res.status(200).json({
+      message: "Your Request Has Been Sent",
+      status: 200,
+    });
+  } catch (error) {
+    return res.status(400).json({
+      message: "Something Went Wrong",
+      status: 400,
+    });
+  }
+});
+
+app.use((req, res) => {
+  res.send(
+    `<h2>Page Not Found</h2><p>The requested page could not be found.</p>`
+  );
 });
