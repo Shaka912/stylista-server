@@ -11,7 +11,9 @@ const bodyParser = require("body-parser");
 const auth = require("./AuthMiddleware");
 var jwt = require("jsonwebtoken");
 const path = require("path");
+const jwkToPem = require("jwk-to-pem");
 const SECRET_KEY = process.env.SECRET_KEY;
+const APPLE_CLIENT_ID = process.env.APPLE_CLIENT_ID;
 
 const app = express();
 app.engine("hbs", engines.handlebars);
@@ -1075,6 +1077,89 @@ app.post("/deleteinfoaccount", async (req, res) => {
       message: "Something Went Wrong",
       status: 400,
     });
+  }
+});
+
+// Utility to fetch Apple’s JWKS
+async function getApplePublicKey(kid) {
+  const response = await fetch("https://appleid.apple.com/auth/keys");
+  const jwks = await response.json();
+
+  const key = jwks.keys.find((key) => key.kid === kid);
+  if (!key) {
+    throw new Error("Invalid key identifier");
+  }
+
+  return key;
+}
+
+// Decode and validate Apple Identity Token
+async function validateAppleIdentityToken(identityToken) {
+  const header = jwt.decode(identityToken, { complete: true }).header;
+  const publicKey = await getApplePublicKey(header.kid);
+
+  // Convert JWK to PEM format
+  const pem = jwkToPem(publicKey);
+
+  // Verify the token using the PEM key
+  return jwt.verify(identityToken, pem, {
+    algorithms: ["RS256"],
+    audience: APPLE_CLIENT_ID,
+    issuer: "https://appleid.apple.com",
+  });
+}
+
+// Apple Login Endpoint
+app.post("/apple-login", async (req, res) => {
+  const { identity_token } = req.body;
+
+  try {
+    const decoded = await validateAppleIdentityToken(identity_token);
+    const email = decoded.email;
+
+    const userDocSnapshot = await fstore
+      .collection("users")
+      .where("email", "==", email)
+      .get();
+
+    if (userDocSnapshot.empty) {
+      return res.status(400).send({
+        email,
+        message: "User Not Available",
+        status: false,
+        status: 200,
+        find: false,
+      });
+    }
+
+    // const userData = userDocSnapshot.docs.map((doc) => doc.data());
+
+    return res
+      .status(200)
+      .send({
+        email,
+        message: "User Available",
+        status: true,
+        status: 200,
+        find: true,
+      });
+  } catch (error) {
+    // Log detailed error for debugging
+    console.error("Token validation error:", error);
+
+    if (error.message.includes("Invalid key identifier")) {
+      return res
+        .status(400)
+        .json({ error: "Invalid key identifier", status: 400 });
+    } else if (error.message.includes("Invalid audience")) {
+      return res
+        .status(400)
+        .json({ error: "Invalid audience (client ID)", status: 400 });
+    } else if (error.message.includes("Expired token")) {
+      return res.status(400).json({ error: "Token has expired", status: 400 });
+    } else {
+      return res.status(400).json({ error: "Invalid token", status: 400 });
+    }
   }
 });
 
