@@ -508,6 +508,37 @@ app.post("/deleteacc", auth, async (req, res) => {
 
       // Delete user from Firebase Authentication (Google-authenticated)
       await admin.auth().deleteUser(userId);
+    } else {
+      if (userData?.accountstatus === "verified") {
+        // Deleting stripe account if exists
+        const stripe_data = await fstore
+          .collection("stripe_data")
+          .doc(userId)
+          .get();
+        const StripeData = stripe_data.data();
+        const stripeBalance = await stripe.balance.retrieve({
+          stripeAccount: StripeData?.stripe_id,
+        });
+        const availableBalance = stripeBalance.available[0]?.amount || 0;
+
+        // Check if the available balance is zero
+        if (availableBalance > 0) {
+          return res.status(400).send({
+            message: "Account balance is not zero, cannot delete the account.",
+            status: 400,
+          });
+        }
+
+        if (StripeData?.stripe_id) {
+          await stripe.accounts.del(StripeData.stripe_id);
+          await fstore.collection("stripe_data").doc(userId).delete();
+        }
+      }
+
+      // Delete user data, posts, post comments, portfolio, comments
+      await deleteUserData(userId, userData?.loginas);
+      await deleteChatrooms(userId);
+      await admin.auth().deleteUser(userId);
     }
 
     res.send({
@@ -1134,15 +1165,13 @@ app.post("/apple-login", async (req, res) => {
 
     // const userData = userDocSnapshot.docs.map((doc) => doc.data());
 
-    return res
-      .status(200)
-      .send({
-        email,
-        message: "User Available",
-        status: true,
-        status: 200,
-        find: true,
-      });
+    return res.status(200).send({
+      email,
+      message: "User Available",
+      status: true,
+      status: 200,
+      find: true,
+    });
   } catch (error) {
     // Log detailed error for debugging
     console.error("Token validation error:", error);
