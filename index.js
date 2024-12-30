@@ -1192,6 +1192,115 @@ app.post("/apple-login", async (req, res) => {
   }
 });
 
+app.post("/changeaccountinfo", async (req, res) => {
+  try {
+    const { userId, name, image } = req.body;
+    const userDoc = await fstore.collection("users").doc(userId).get();
+    const userData = userDoc.data();
+
+    if (!userDoc.exists) {
+      return res.status(404).send({ message: "User not found" });
+    }
+
+    await updateUserData(userId, name, image, userData?.loginas);
+
+    return res.status(200).json({
+      message: "Account information updated successfully",
+      status: 200,
+    });
+  } catch (error) {
+    console.error("Error updating account information:", error.message);
+    return res.status(500).json({ message: "Internal Server Error" });
+  }
+});
+
+async function updateUserData(userId, name, image, usertype) {
+  const batch = fstore.batch();
+
+  const updatedataforposts = {
+    name: name,
+    userimage: image,
+  };
+  // Update user posts
+  const postsSnapshot = await fstore
+    .collection("posts")
+    .where("userid", "==", userId)
+    .get();
+  postsSnapshot.forEach((doc) => {
+    batch.update(doc.ref, updatedataforposts);
+  });
+
+  const updatedataforcomments = {
+    name: name,
+    image: image,
+  };
+  // Update user post comments
+  const postCommentsSnapshot = await fstore
+    .collection("post_comments")
+    .where("userId", "==", userId)
+    .get();
+  postCommentsSnapshot.forEach((doc) => {
+    batch.update(doc.ref, updatedataforcomments);
+  });
+
+  const dataforportfolis = {
+    name: name,
+    userimage: image,
+  };
+  // Update user portfolio
+  const portfolioSnapshot = await fstore
+    .collection("portfolio")
+    .where("userid", "==", userId)
+    .get();
+  portfolioSnapshot.forEach((doc) => {
+    batch.update(doc.ref, dataforportfolis);
+  });
+
+  const updatedataforpostcomments = {
+    name: name,
+    image: image,
+  };
+  // Update user comments
+  const commentsSnapshot = await fstore
+    .collection("comments")
+    .where("userId", "==", userId)
+    .get();
+  commentsSnapshot.forEach((doc) => {
+    batch.update(doc.ref, updatedataforpostcomments);
+  });
+
+  if (usertype == "seller") {
+    const updateforvisit = {
+      seller_name: name,
+      seller_avatar: image,
+    };
+    // Delete user comments
+    const visitsSnapshot = await fstore
+      .collection("visit")
+      .where("sellerid", "==", userId)
+      .get();
+    visitsSnapshot.forEach((doc) => {
+      batch.update(doc.ref, updateforvisit);
+    });
+  } else {
+    const updateforvisit = {
+      user_name: name,
+      user_avatar: image,
+    };
+    // Delete user visits
+    const visitsSnapshot = await fstore
+      .collection("visit")
+      .where("user_id", "==", userId)
+      .get();
+    visitsSnapshot.forEach((doc) => {
+      batch.update(doc.ref, updateforvisit);
+    });
+  }
+
+  // Commit the batch
+  await batch.commit();
+}
+
 app.use((req, res) => {
   res.send(
     `<h2>Page Not Found</h2><p>The requested page could not be found.</p>`
