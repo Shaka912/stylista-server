@@ -12,6 +12,9 @@ const auth = require("./AuthMiddleware");
 var jwt = require("jsonwebtoken");
 const path = require("path");
 const jwkToPem = require("jwk-to-pem");
+const cron = require("node-cron");
+const moment = require("moment-timezone");
+
 const SECRET_KEY = process.env.SECRET_KEY;
 const APPLE_CLIENT_ID = process.env.APPLE_CLIENT_ID;
 
@@ -1300,6 +1303,48 @@ async function updateUserData(userId, name, image, usertype) {
   // Commit the batch
   await batch.commit();
 }
+
+const timezone = moment.tz.guess();
+
+// Cron job that runs every hour at minute 0
+cron.schedule(
+  "0 * * * *", // Runs every hour
+  async () => {
+    const now = admin.firestore.Timestamp.now();
+    const currentLocalTime = moment.tz(now.toDate(), timezone);
+
+    try {
+      const storiesRef = fstore.collection("Story");
+      const snapshot = await storiesRef.get();
+
+      if (!snapshot.empty) {
+        for (const doc of snapshot.docs) {
+          const data = doc.data();
+          const photos = data.photos || [];
+
+          const expiredPhotos = photos.filter((photo) => {
+            const expiresAt = photo.expiresAt.toDate();
+            const expiresAtLocal = moment.tz(expiresAt, timezone);
+
+            return expiresAtLocal.isBefore(currentLocalTime);
+          });
+
+          if (expiredPhotos.length > 0) {
+            await storiesRef.doc(doc.id).update({
+              photos: admin.firestore.FieldValue.arrayRemove(...expiredPhotos),
+            });
+            console.log(`Removed expired photos from story: ${doc.id}`);
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error deleting expired stories:", error);
+    }
+  },
+  {
+    timezone: timezone, // Ensures it runs in your local timezone
+  }
+);
 
 app.use((req, res) => {
   res.send(
