@@ -1308,7 +1308,7 @@ const timezone = moment.tz.guess();
 
 // Cron job that runs every hour at minute 0
 cron.schedule(
-  "0 * * * *", // Runs every hour
+  "0 * * * *", // Runs every day at 8:55 AM
   async () => {
     const now = admin.firestore.Timestamp.now();
     const currentLocalTime = moment.tz(now.toDate(), timezone);
@@ -1316,7 +1316,6 @@ cron.schedule(
     try {
       const storiesRef = fstore.collection("Story");
       const snapshot = await storiesRef.get();
-
       if (!snapshot.empty) {
         for (const doc of snapshot.docs) {
           const data = doc.data();
@@ -1325,15 +1324,26 @@ cron.schedule(
           const expiredPhotos = photos.filter((photo) => {
             const expiresAt = photo.expiresAt.toDate();
             const expiresAtLocal = moment.tz(expiresAt, timezone);
-
             return expiresAtLocal.isBefore(currentLocalTime);
           });
 
           if (expiredPhotos.length > 0) {
+            // Remove expired photos
             await storiesRef.doc(doc.id).update({
               photos: admin.firestore.FieldValue.arrayRemove(...expiredPhotos),
             });
+
             console.log(`Removed expired photos from story: ${doc.id}`);
+
+            // Fetch updated document to check if photos array is empty
+            const updatedDoc = await storiesRef.doc(doc.id).get();
+            const updatedPhotos = updatedDoc.data()?.photos || [];
+
+            // If no photos remain, delete the entire document
+            if (updatedPhotos.length === 0) {
+              await storiesRef.doc(doc.id).delete();
+              console.log(`Deleted story document: ${doc.id}`);
+            }
           }
         }
       }
