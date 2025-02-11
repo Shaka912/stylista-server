@@ -763,10 +763,10 @@ app.post("/refund-charge-artist", auth, async (req, res) => {
       reverse_transfer: true,
     });
 
-    res.send({ refund });
+    res.send({ refund, status: 200 });
   } catch (err) {
     console.error("Error in server:", err);
-    res.status(500).send({ error: err.message });
+    res.status(500).send({ error: err.message, status: 400 });
   }
 });
 
@@ -846,10 +846,10 @@ app.post("/refund-charge-client", auth, async (req, res) => {
       refund_application_fee: false, // Deduct application fee for client-side refunds
     });
 
-    res.send({ refund });
+    res.send({ refund, status: 200 });
   } catch (err) {
     console.error("Error in server:", err);
-    res.status(500).send({ error: err.message });
+    res.status(500).send({ error: err.message, status: 400 });
   }
 });
 
