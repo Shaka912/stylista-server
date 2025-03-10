@@ -1357,81 +1357,18 @@ cron.schedule(
   }
 );
 
-
 const client = new Mux({
   tokenId: process.env.MUX_TOKEN_ID,
   tokenSecret: process.env.MUX_TOKEN_SECRET,
 });
 
-app.post("/createpost", auth, async (req, res) => {
+app.post("/post", auth, async (req, res) => {
   try {
-    const {
-      userid,
-      likescount,
-      commentcount,
-      name,
-      userimage,
-      sharecount,
-      title,
-      category,
-      timestamp,
-      postimage,
-      likedby,
-      artistType,
-      type,
-    } = req.body;
+    const { id } = req.body;
 
-    let uploadedMedia = "";
-    let playbackId = "";
-
-    if (type === "video") {
-      const asset = await client.video.assets.create({
-        input: [{ url: postimage }],
-        playback_policy: ["public"],
-        mp4_support: "standard",
-      });
-
-      uploadedMedia = postimage;
-      // playbackId = asset.id;
-      playbackId = asset.playback_ids[0].id;
-    } else {
-      uploadedMedia = postimage;
+    if (!id) {
+      return res.status(400).json({ message: "Post ID is required" });
     }
-
-    const postRef = fstore.collection("posts").doc();
-    const post = {
-      userid,
-      likescount,
-      commentcount,
-      name,
-      userimage,
-      sharecount,
-      title,
-      category,
-      timestamp,
-      postimage: uploadedMedia,
-      playbackId,
-      likedby,
-      artistType,
-      type,
-    };
-
-    await postRef.set(post);
-
-    return res.status(200).json({
-      message: "Post created successfully",
-      status: true,
-      status: 200,
-    });
-  } catch (error) {
-    console.error("Error creating post:", error);
-    return res.status(500).json({ message: "Internal Server Error" });
-  }
-});
-
-app.patch("/updatepost", auth, async (req, res) => {
-  try {
-    const { title, category, postimage, type, id } = req.body;
 
     const postRef = fstore.collection("posts").doc(id);
     const postSnapshot = await postRef.get();
@@ -1441,32 +1378,38 @@ app.patch("/updatepost", auth, async (req, res) => {
     }
 
     const existingPost = postSnapshot.data();
-    let updatedMedia = postimage;
-    let playbackId = existingPost.playbackId || "";
+    const postimage = existingPost.postimage; // Get post image from Firestore
 
-    // Check if video has changed before creating a new asset
-    if (type === "video" && existingPost.postimage !== postimage) {
-      const asset = await client.video.assets.create({
-        input: [{ url: postimage }],
-        playback_policy: ["public"],
-        mp4_support: "standard",
-      });
-
-      updatedMedia = postimage;
-      playbackId = asset.playback_ids[0].id;
+    if (!postimage) {
+      return res
+        .status(400)
+        .json({ message: "No post image found for this post" });
     }
 
+    let playbackId = existingPost.playbackId || "";
+
+    // Upload video to Mux
+    const asset = await client.video.assets.create({
+      input: [{ url: postimage }],
+      playback_policy: ["public"],
+      mp4_support: "standard",
+    });
+
+    if (asset?.playback_ids?.length > 0) {
+      playbackId = asset.playback_ids[0].id;
+    } else {
+      return res
+        .status(500)
+        .json({ message: "Failed to generate playback ID" });
+    }
+
+    // Update Firestore with the new playback ID
     await postRef.update({
-      title,
-      category,
-      postimage: updatedMedia,
       playbackId,
-      type,
     });
 
     return res.status(200).json({
       message: "Post updated successfully",
-      status: true,
       status: 200,
     });
   } catch (error) {
@@ -1475,94 +1418,45 @@ app.patch("/updatepost", auth, async (req, res) => {
   }
 });
 
-app.patch("/createstory", auth, async (req, res) => {
+app.post("/story", async (req, res) => {
   try {
-    const { photos, userImage, timestamp, name, userId } = req.body;
+    const { userId } = req.body;
+    const postRef = fstore.collection("Story").doc(userId);
+    const postSnapshot = await postRef.get();
 
-    let updatedPhotos = [];
-
-    for (let photo of photos) {
-      let { url, type } = photo;
-      let playbackId = null;
-
-      if (type === "video") {
-        // Create a new Mux asset for video
-        const asset = await client.video.assets.create({
-          input: [{ url }],
-          playback_policy: ["public"],
-          mp4_support: "standard",
-        });
-
-        playbackId = asset.playback_ids[0].id;
-      }
-
-      updatedPhotos.push({
-        ...photo,
-        playbackId, // Add playbackId if it's a video, otherwise null
-      });
-    }
-
-    // Create or update the story in Firestore
-    await storyRef.set({
-      photos: updatedPhotos,
-      userImage,
-      timestamp,
-      name,
-      userId,
-    });
-
-    return res
-      .status(200)
-      .json({ message: "Story created/updated successfully" });
-  } catch (error) {
-    console.error("Error updating story:", error);
-    return res.status(500).json({ message: "Internal Server Error" });
-  }
-});
-
-app.patch("/updatestory", auth, async (req, res) => {
-  try {
-    const { id, photos, userImage, timestamp, name } = req.body;
-
-    const storyRef = fstore.collection("Story").doc(id);
-    const storySnapshot = await storyRef.get();
-
-    if (!storySnapshot.exists) {
+    if (!postSnapshot.exists) {
       return res.status(404).json({ message: "Story not found" });
     }
 
-    let updatedPhotos = [];
+    let photos = postSnapshot.data().photos || [];
 
+    // Process only videos (keeping images untouched)
     for (let photo of photos) {
-      let { url, type } = photo;
-      let playbackId = null;
+      if (photo.type.startsWith("video/") && !photo.playbackId) {
+        try {
+          const asset = await client.video.assets.create({
+            input: [{ url: photo.url }],
+            playback_policy: ["public"],
+            mp4_support: "standard",
+          });
 
-      if (type === "video") {
-        // Create a new Mux asset for video
-        const asset = await client.video.assets.create({
-          input: [{ url }],
-          playback_policy: ["public"],
-          mp4_support: "standard",
-        });
-
-        playbackId = asset.playback_ids[0].id;
+          if (asset && asset.playback_ids.length > 0) {
+            photo.playbackId = asset.playback_ids[0].id;
+          } else {
+            console.error("Mux upload failed for:", photo.url);
+          }
+        } catch (muxError) {
+          console.error("Error uploading video to Mux:", muxError);
+        }
       }
-
-      updatedPhotos.push({
-        ...photo,
-        playbackId, // Add playbackId if it's a video, otherwise null
-      });
     }
 
-    // Update Firestore document
-    await storyRef.update({
-      photos: updatedPhotos,
-      userImage,
-      timestamp,
-      name,
-    });
+    // Update Firestore with the full photos array (keeping images and updated videos)
+    await postRef.update({ photos });
 
-    return res.status(200).json({ message: "Story updated successfully" });
+    return res
+      .status(200)
+      .json({ message: "Story updated successfully", status: 200 });
   } catch (error) {
     console.error("Error updating story:", error);
     return res.status(500).json({ message: "Internal Server Error" });
