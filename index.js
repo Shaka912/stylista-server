@@ -1392,7 +1392,7 @@ app.post("/post", auth, async (req, res) => {
     const asset = await client.video.assets.create({
       input: [{ url: postimage }],
       playback_policy: ["public"],
-      mp4_support: "standard",
+      // mp4_support: "standard",
     });
 
     if (asset?.playback_ids?.length > 0) {
@@ -1437,7 +1437,7 @@ app.post("/story", async (req, res) => {
           const asset = await client.video.assets.create({
             input: [{ url: photo.url }],
             playback_policy: ["public"],
-            mp4_support: "standard",
+            // mp4_support: "standard",
           });
 
           if (asset && asset.playback_ids.length > 0) {
