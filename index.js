@@ -1273,6 +1273,20 @@ async function updateUserData(userId, name, image, usertype) {
     batch.update(doc.ref, updatedataforpostcomments);
   });
 
+  //update review data
+  const reviewdata = {
+    user_name: name,
+    user_image: image,
+  };
+  // Update user reviews
+  const reviewsSnapshot = await fstore
+    .collection("reviews")
+    .where("user_id", "==", userId)
+    .get();
+  reviewsSnapshot.forEach((doc) => {
+    batch.update(doc.ref, reviewdata);
+  });
+
   if (usertype == "seller") {
     const updateforvisit = {
       seller_name: name,
