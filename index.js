@@ -2,7 +2,7 @@ const admin = require("firebase-admin");
 const express = require("express");
 require("handlebars");
 require("dotenv").config();
-const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY_PROD);
 const engines = require("consolidate");
 const tmp = require("tmp");
 const fs = require("fs");
@@ -52,7 +52,7 @@ const notification = admin.messaging();
 
 app.use("/webhook", express.raw({ type: "application/json" }));
 
-const STRIPE_ACCOUNT_WEBHOOK_SECRET = `${process.env.STRIPE_ACCOUNT_WEBHOOK_SECRET}`;
+const STRIPE_ACCOUNT_WEBHOOK_SECRET = `${process.env.STRIPE_ACCOUNT_WEBHOOK_SECRET_PROD}`;
 
 app.post(
   "/accountwebhook",
@@ -163,7 +163,7 @@ const sendNotification = async (userId, visitId, title, body) => {
   }
 };
 
-const STRIPE_PAYMENT_WEBHOOK_SECRET = `${process.env.STRIPE_PAYMENT_WEBHOOK_SECRET}`;
+const STRIPE_PAYMENT_WEBHOOK_SECRET = `${process.env.STRIPE_PAYMENT_WEBHOOK_SECRET_PROD}`;
 
 app.post(
   "/paymentwebhook",

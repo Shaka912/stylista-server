@@ -1,20 +1,20 @@
 const Dev_Collections = {
-  chatrooms: "chatrooms",
-  comments: "comments",
-  deletionRequests: "deletionRequests",
-  notifications: "notifications",
-  portfolio: "portfolio",
-  post_comments: "post_comments",
-  posts: "posts",
-  reviews: "reviews",
-  stripe_data: "stripe_data",
-  users: "users",
-  visit: "visit",
-  messages: "messages",
-  Story: "Story",
+  chatrooms: "prod_chatrooms",
+  comments: "prod_comments",
+  deletionRequests: "prod_deletionRequests",
+  notifications: "prod_notifications",
+  portfolio: "prod_portfolio",
+  post_comments: "prod_post_comments",
+  posts: "prod_posts",
+  reviews: "prod_reviews",
+  stripe_data: "prod_stripe_data",
+  users: "prod_users",
+  visit: "prod_visit",
+  messages: "prod_messages",
+  Story: "prod_Story",
 };
 const ImageTable = {
-  stripe_image: "stripe_image",
+  stripe_image: "prod_stripe_image",
 };
 
 module.exports = {
