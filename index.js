@@ -15,6 +15,7 @@ const jwkToPem = require("jwk-to-pem");
 const cron = require("node-cron");
 const moment = require("moment-timezone");
 const Mux = require("@mux/mux-node");
+const { Dev_Collections, ImageTable } = require("./ConstantForFirebase");
 
 const SECRET_KEY = process.env.SECRET_KEY;
 const APPLE_CLIENT_ID = process.env.APPLE_CLIENT_ID;
@@ -80,13 +81,16 @@ app.post(
       const verificationStatus = account?.individual?.verification?.status;
       const transferStatus = account?.capabilities?.transfers;
       if (verificationStatus === "verified" && transferStatus == "active") {
-        await fstore.collection("users").doc(userId).update({
+        await fstore.collection(Dev_Collections.users).doc(userId).update({
           accountstatus: "verified",
         });
-        await fstore.collection("stripe_data").doc(userId).update({
-          transfermoney: transferStatus,
-          verificationStatus: verificationStatus,
-        });
+        await fstore
+          .collection(Dev_Collections.stripe_data)
+          .doc(userId)
+          .update({
+            transfermoney: transferStatus,
+            verificationStatus: verificationStatus,
+          });
         await accountNotification(userId);
       }
     }
@@ -101,7 +105,10 @@ app.post(
 const sendNotification = async (userId, visitId, title, body) => {
   try {
     // Fetch the user's document from the Firestore collection using userId
-    const userDoc = await fstore.collection("users").doc(userId).get();
+    const userDoc = await fstore
+      .collection(Dev_Collections.users)
+      .doc(userId)
+      .get();
 
     if (!userDoc.exists) {
       console.log("User not found");
@@ -123,7 +130,7 @@ const sendNotification = async (userId, visitId, title, body) => {
     };
 
     const notificationRef = await fstore
-      .collection("notifications")
+      .collection(Dev_Collections.notifications)
       .add(notificationData);
     const notificationId = notificationRef.id;
 
@@ -185,7 +192,7 @@ app.post(
           return res.status(400).send("visit_id not found in metadata");
         }
 
-        await fstore.collection("visit").doc(visitId).update({
+        await fstore.collection(Dev_Collections.visit).doc(visitId).update({
           status: true,
           visit_status: "inprogress",
           paymentIntent: event.data.object.id,
@@ -230,7 +237,7 @@ const sendPassportToStripe = (userId, side) => {
 
     const bucket = storage.bucket("gs://stylistasapp7.appspot.com");
 
-    const file = bucket.file(`stripe_image/${userId}${side}`);
+    const file = bucket.file(`${ImageTable.stripe_image}/${userId}${side}`);
 
     file.download({ destination: tempFilePath }).then(async () => {
       const fp = fs.readFileSync(tempFilePath);
@@ -442,7 +449,10 @@ app.post("/create-payment-link", auth, async (req, res) => {
 app.post("/deleteacc", auth, async (req, res) => {
   try {
     const { userId } = req.body;
-    const userDoc = await fstore.collection("users").doc(userId).get();
+    const userDoc = await fstore
+      .collection(Dev_Collections.users)
+      .doc(userId)
+      .get();
     const userData = userDoc.data();
 
     if (!userDoc.exists) {
@@ -453,7 +463,7 @@ app.post("/deleteacc", auth, async (req, res) => {
       if (userData?.accountstatus === "verified") {
         // Deleting stripe account if exists
         const stripe_data = await fstore
-          .collection("stripe_data")
+          .collection(Dev_Collections.stripe_data)
           .doc(userId)
           .get();
         const StripeData = stripe_data.data();
@@ -472,7 +482,10 @@ app.post("/deleteacc", auth, async (req, res) => {
 
         if (StripeData?.stripe_id) {
           await stripe.accounts.del(StripeData.stripe_id);
-          await fstore.collection("stripe_data").doc(userId).delete();
+          await fstore
+            .collection(Dev_Collections.stripe_data)
+            .doc(userId)
+            .delete();
         }
       }
 
@@ -484,7 +497,7 @@ app.post("/deleteacc", auth, async (req, res) => {
       if (userData?.accountstatus === "verified") {
         // Deleting stripe account if exists
         const stripe_data = await fstore
-          .collection("stripe_data")
+          .collection(Dev_Collections.stripe_data)
           .doc(userId)
           .get();
         const StripeData = stripe_data.data();
@@ -502,7 +515,10 @@ app.post("/deleteacc", auth, async (req, res) => {
         }
         if (StripeData?.stripe_id) {
           await stripe.accounts.del(StripeData.stripe_id);
-          await fstore.collection("stripe_data").doc(userId).delete();
+          await fstore
+            .collection(Dev_Collections.stripe_data)
+            .doc(userId)
+            .delete();
         }
       }
 
@@ -516,7 +532,7 @@ app.post("/deleteacc", auth, async (req, res) => {
       if (userData?.accountstatus === "verified") {
         // Deleting stripe account if exists
         const stripe_data = await fstore
-          .collection("stripe_data")
+          .collection(Dev_Collections.stripe_data)
           .doc(userId)
           .get();
         const StripeData = stripe_data.data();
@@ -535,7 +551,10 @@ app.post("/deleteacc", auth, async (req, res) => {
 
         if (StripeData?.stripe_id) {
           await stripe.accounts.del(StripeData.stripe_id);
-          await fstore.collection("stripe_data").doc(userId).delete();
+          await fstore
+            .collection(Dev_Collections.stripe_data)
+            .doc(userId)
+            .delete();
         }
       }
 
@@ -561,7 +580,7 @@ async function deleteUserData(userId, usertype) {
 
   // Delete user posts
   const postsSnapshot = await fstore
-    .collection("posts")
+    .collection(Dev_Collections.posts)
     .where("userid", "==", userId)
     .get();
   postsSnapshot.forEach((doc) => {
@@ -570,7 +589,7 @@ async function deleteUserData(userId, usertype) {
 
   // Delete user post comments
   const postCommentsSnapshot = await fstore
-    .collection("post_comments")
+    .collection(Dev_Collections.post_comments)
     .where("userId", "==", userId)
     .get();
   postCommentsSnapshot.forEach((doc) => {
@@ -579,7 +598,7 @@ async function deleteUserData(userId, usertype) {
 
   // Delete user portfolio
   const portfolioSnapshot = await fstore
-    .collection("portfolio")
+    .collection(Dev_Collections.portfolio)
     .where("userid", "==", userId)
     .get();
   portfolioSnapshot.forEach((doc) => {
@@ -588,7 +607,7 @@ async function deleteUserData(userId, usertype) {
 
   // Delete user comments
   const commentsSnapshot = await fstore
-    .collection("comments")
+    .collection(Dev_Collections.comments)
     .where("userId", "==", userId)
     .get();
   commentsSnapshot.forEach((doc) => {
@@ -598,7 +617,7 @@ async function deleteUserData(userId, usertype) {
   if (usertype == "seller") {
     // Delete user comments
     const visitsSnapshot = await fstore
-      .collection("visit")
+      .collection(Dev_Collections.visit)
       .where("sellerid", "==", userId)
       .get();
     visitsSnapshot.forEach((doc) => {
@@ -607,7 +626,7 @@ async function deleteUserData(userId, usertype) {
   } else {
     // Delete user visits
     const visitsSnapshot = await fstore
-      .collection("visit")
+      .collection(Dev_Collections.visit)
       .where("user_id", "==", userId)
       .get();
     visitsSnapshot.forEach((doc) => {
@@ -616,7 +635,7 @@ async function deleteUserData(userId, usertype) {
   }
 
   // Finally delete the user document
-  batch.delete(fstore.collection("users").doc(userId));
+  batch.delete(fstore.collection(Dev_Collections.users).doc(userId));
 
   // Commit the batch
   await batch.commit();
@@ -628,7 +647,7 @@ async function deleteChatrooms(userId) {
 
   // Find all chatrooms where the user is a participant
   const chatroomsSnapshot = await fstore
-    .collection("chatrooms")
+    .collection(Dev_Collections.chatrooms)
     .where("users", "array-contains", userId)
     .get();
 
@@ -637,7 +656,7 @@ async function deleteChatrooms(userId) {
 
     // Delete all messages in the chatroom
     const messagesSnapshot = await fstore
-      .collection("messages")
+      .collection(Dev_Collections.messages)
       .where("chatroomId", "==", chatroomId)
       .get();
     messagesSnapshot.forEach((messageDoc) => {
@@ -693,7 +712,10 @@ app.post("/externalaccount", auth, async (req, res) => {
 app.post("/refund-charge-artist", auth, async (req, res) => {
   try {
     const { visitId, paymentId, userId } = req.body;
-    const userDoc = await fstore.collection("users").doc(userId).get();
+    const userDoc = await fstore
+      .collection(Dev_Collections.users)
+      .doc(userId)
+      .get();
 
     if (!userDoc.exists) {
       console.log("User not found");
@@ -715,7 +737,7 @@ app.post("/refund-charge-artist", auth, async (req, res) => {
     };
 
     const notificationRef = await fstore
-      .collection("notifications")
+      .collection(Dev_Collections.notifications)
       .add(notificationData);
     const notificationId = notificationRef.id;
 
@@ -744,7 +766,7 @@ app.post("/refund-charge-artist", auth, async (req, res) => {
       console.log("FCM token not found, notification saved to database");
     }
 
-    await fstore.collection("visit").doc(visitId).update({
+    await fstore.collection(Dev_Collections.visit).doc(visitId).update({
       status: false,
       visit_status: "cancelled",
     });
@@ -775,7 +797,10 @@ app.post("/refund-charge-client", auth, async (req, res) => {
   try {
     const { visitId, paymentId, userId } = req.body;
 
-    const userDoc = await fstore.collection("users").doc(userId).get();
+    const userDoc = await fstore
+      .collection(Dev_Collections.users)
+      .doc(userId)
+      .get();
     if (!userDoc.exists) {
       console.log("User not found");
       return res.status(404).send({ error: "User not found" });
@@ -797,7 +822,7 @@ app.post("/refund-charge-client", auth, async (req, res) => {
     };
 
     const notificationRef = await fstore
-      .collection("notifications")
+      .collection(Dev_Collections.notifications)
       .add(notificationData);
     const notificationId = notificationRef.id;
 
@@ -827,7 +852,7 @@ app.post("/refund-charge-client", auth, async (req, res) => {
       console.log("FCM token not found, notification saved to database");
     }
 
-    await fstore.collection("visit").doc(visitId).update({
+    await fstore.collection(Dev_Collections.visit).doc(visitId).update({
       status: false,
       visit_status: "cancelled",
     });
@@ -859,10 +884,13 @@ app.post("/payout", auth, async (req, res) => {
     const { seller_id, visitId } = req.body;
 
     const stripeinfo = await fstore
-      .collection("stripe_data")
+      .collection(Dev_Collections.stripe_data)
       .doc(seller_id)
       .get();
-    const visitDoc = await fstore.collection("visit").doc(visitId).get();
+    const visitDoc = await fstore
+      .collection(Dev_Collections.visit)
+      .doc(visitId)
+      .get();
     const paymentIntent = await stripe.paymentIntents.capture(
       visitDoc.data().paymentIntent
     );
@@ -876,7 +904,10 @@ app.post("/payout", auth, async (req, res) => {
 const accountNotification = async (userId) => {
   try {
     // Fetch the user's document from the Firestore collection using userId
-    const userDoc = await fstore.collection("users").doc(userId).get();
+    const userDoc = await fstore
+      .collection(Dev_Collections.users)
+      .doc(userId)
+      .get();
 
     if (!userDoc.exists) {
       console.log("User not found");
@@ -897,7 +928,7 @@ const accountNotification = async (userId) => {
     };
 
     const notificationRef = await fstore
-      .collection("notifications")
+      .collection(Dev_Collections.notifications)
       .add(notificationData);
     const notificationId = notificationRef.id;
 
@@ -933,7 +964,10 @@ app.post("/test", async (req, res) => {
   try {
     // Fetch the user's document from the Firestore collection using userId
     const { userId, visitId } = req.body;
-    const userDoc = await fstore.collection("users").doc(userId).get();
+    const userDoc = await fstore
+      .collection(Dev_Collections.users)
+      .doc(userId)
+      .get();
 
     if (!userDoc.exists) {
       console.log("User not found");
@@ -960,7 +994,7 @@ app.post("/test", async (req, res) => {
     };
 
     const notificationRef = await fstore
-      .collection("notifications")
+      .collection(Dev_Collections.notifications)
       .add(notificationData);
     const notificationId = notificationRef.id;
     // Prepare the message
@@ -997,7 +1031,7 @@ app.post("/get-balance", auth, async (req, res) => {
   try {
     const { seller_id } = req.body;
     const stripeinfo = await fstore
-      .collection("stripe_data")
+      .collection(Dev_Collections.stripe_data)
       .doc(seller_id)
       .get();
     // Get the Stripe balance for the connected account
@@ -1018,7 +1052,7 @@ app.post("/withdraw", auth, async (req, res) => {
   try {
     const { seller_id, amount } = req.body;
     const stripeinfo = await fstore
-      .collection("stripe_data")
+      .collection(Dev_Collections.stripe_data)
       .doc(seller_id)
       .get();
     const balance = await stripe.balance.retrieve({
@@ -1072,7 +1106,7 @@ app.post("/deleteinfoaccount", async (req, res) => {
     const { email } = req.body;
 
     const userSnapshot = await fstore
-      .collection("users")
+      .collection(Dev_Collections.users)
       .where("email", "==", email)
       .get();
 
@@ -1084,7 +1118,7 @@ app.post("/deleteinfoaccount", async (req, res) => {
     }
 
     const requestSnapshot = await fstore
-      .collection("deletionRequests")
+      .collection(Dev_Collections.deletionRequests)
       .where("email", "==", email)
       .get();
 
@@ -1101,7 +1135,7 @@ app.post("/deleteinfoaccount", async (req, res) => {
       message: "Request to delete account",
     };
 
-    await fstore.collection("deletionRequests").add(requestData);
+    await fstore.collection(Dev_Collections.deletionRequests).add(requestData);
 
     return res.status(200).json({
       message: "Your Request Has Been Sent",
@@ -1153,7 +1187,7 @@ app.post("/apple-login", async (req, res) => {
     const email = decoded.email;
 
     const userDocSnapshot = await fstore
-      .collection("users")
+      .collection(Dev_Collections.users)
       .where("email", "==", email)
       .get();
 
@@ -1199,7 +1233,10 @@ app.post("/apple-login", async (req, res) => {
 app.post("/changeaccountinfo", async (req, res) => {
   try {
     const { userId, name, image } = req.body;
-    const userDoc = await fstore.collection("users").doc(userId).get();
+    const userDoc = await fstore
+      .collection(Dev_Collections.users)
+      .doc(userId)
+      .get();
     const userData = userDoc.data();
 
     if (!userDoc.exists) {
@@ -1227,7 +1264,7 @@ async function updateUserData(userId, name, image, usertype) {
   };
   // Update user posts
   const postsSnapshot = await fstore
-    .collection("posts")
+    .collection(Dev_Collections.posts)
     .where("userid", "==", userId)
     .get();
   postsSnapshot.forEach((doc) => {
@@ -1240,7 +1277,7 @@ async function updateUserData(userId, name, image, usertype) {
   };
   // Update user post comments
   const postCommentsSnapshot = await fstore
-    .collection("post_comments")
+    .collection(Dev_Collections.post_comments)
     .where("userId", "==", userId)
     .get();
   postCommentsSnapshot.forEach((doc) => {
@@ -1253,7 +1290,7 @@ async function updateUserData(userId, name, image, usertype) {
   };
   // Update user portfolio
   const portfolioSnapshot = await fstore
-    .collection("portfolio")
+    .collection(Dev_Collections.portfolio)
     .where("userid", "==", userId)
     .get();
   portfolioSnapshot.forEach((doc) => {
@@ -1266,7 +1303,7 @@ async function updateUserData(userId, name, image, usertype) {
   };
   // Update user comments
   const commentsSnapshot = await fstore
-    .collection("comments")
+    .collection(Dev_Collections.comments)
     .where("userId", "==", userId)
     .get();
   commentsSnapshot.forEach((doc) => {
@@ -1280,7 +1317,7 @@ async function updateUserData(userId, name, image, usertype) {
   };
   // Update user reviews
   const reviewsSnapshot = await fstore
-    .collection("reviews")
+    .collection(Dev_Collections.reviews)
     .where("user_id", "==", userId)
     .get();
   reviewsSnapshot.forEach((doc) => {
@@ -1294,7 +1331,7 @@ async function updateUserData(userId, name, image, usertype) {
     };
     // Delete user comments
     const visitsSnapshot = await fstore
-      .collection("visit")
+      .collection(Dev_Collections.visit)
       .where("sellerid", "==", userId)
       .get();
     visitsSnapshot.forEach((doc) => {
@@ -1307,7 +1344,7 @@ async function updateUserData(userId, name, image, usertype) {
     };
     // Delete user visits
     const visitsSnapshot = await fstore
-      .collection("visit")
+      .collection(Dev_Collections.visit)
       .where("user_id", "==", userId)
       .get();
     visitsSnapshot.forEach((doc) => {
@@ -1329,7 +1366,7 @@ cron.schedule(
     const currentLocalTime = moment.tz(now.toDate(), timezone);
 
     try {
-      const storiesRef = fstore.collection("Story");
+      const storiesRef = fstore.collection(Dev_Collections.Story);
       const snapshot = await storiesRef.get();
       if (!snapshot.empty) {
         for (const doc of snapshot.docs) {
@@ -1384,7 +1421,7 @@ app.post("/post", auth, async (req, res) => {
       return res.status(400).json({ message: "Post ID is required" });
     }
 
-    const postRef = fstore.collection("posts").doc(id);
+    const postRef = fstore.collection(Dev_Collections.posts).doc(id);
     const postSnapshot = await postRef.get();
 
     if (!postSnapshot.exists) {
@@ -1435,7 +1472,7 @@ app.post("/post", auth, async (req, res) => {
 app.post("/story", async (req, res) => {
   try {
     const { userId } = req.body;
-    const postRef = fstore.collection("Story").doc(userId);
+    const postRef = fstore.collection(Dev_Collections.Story).doc(userId);
     const postSnapshot = await postRef.get();
 
     if (!postSnapshot.exists) {
