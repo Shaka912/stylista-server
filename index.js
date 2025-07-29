@@ -54,6 +54,25 @@ app.use("/webhook", express.raw({ type: "application/json" }));
 
 const STRIPE_ACCOUNT_WEBHOOK_SECRET = `${process.env.STRIPE_ACCOUNT_WEBHOOK_SECRET}`;
 
+const requirementMeanings = {
+  "individual.id_number": "Your government ID number is missing or invalid.",
+  "individual.dob.day": "Your date of birth is missing or invalid.",
+  "individual.verification.document":
+    "Your government-issued ID document is required or invalid.",
+  "individual.first_name":
+    "Your first name is missing or does not match your ID.",
+  "individual.last_name":
+    "Your last name is missing or does not match your ID.",
+  "company.tax_id": "Your company’s tax ID (EIN) is missing or incorrect.",
+  "individual.address.line1": "Your street address is missing or incorrect.",
+  "individual.address.city": "Your city is missing or incorrect.",
+  "individual.address.postal_code": "Your postal code is missing or incorrect.",
+  "relationship.representative":
+    "Your business representative details are incomplete.",
+  "company.verification.document":
+    "Your business registration document is missing or invalid.",
+};
+
 app.post(
   "/accountwebhook",
   bodyParser.raw({ type: "application/json" }),
@@ -76,6 +95,7 @@ app.post(
     if (event.type === "account.updated") {
       const account = event.data.object;
       const userId = event.data.object?.metadata?.user_id;
+      const errors = account.requirements?.errors || [];
 
       // Extract the updated values
       const verificationStatus = account?.individual?.verification?.status;
@@ -92,6 +112,23 @@ app.post(
             verificationStatus: verificationStatus,
           });
         await accountNotification(userId);
+      } else if (errors.length > 0) {
+        // 🔁 Send notification for each error
+        for (const error of errors) {
+          const readableMessage =
+            requirementMeanings[error.requirement] || error.reason;
+
+          await accountNotification(userId, {
+            title: "Verification Failed",
+            description: readableMessage,
+          });
+        }
+
+        // ❌ Delete stripe_data entry for this user
+        await fstore
+          .collection(Dev_Collections.stripe_data)
+          .doc(userId)
+          .delete();
       }
     }
 
@@ -901,7 +938,7 @@ app.post("/payout", auth, async (req, res) => {
   }
 });
 
-const accountNotification = async (userId) => {
+const accountNotification = async (userId, custom = null) => {
   try {
     // Fetch the user's document from the Firestore collection using userId
     const userDoc = await fstore
@@ -917,9 +954,12 @@ const accountNotification = async (userId) => {
     // Extract the user's FCM token from the document
     const userData = userDoc.data();
     const token = userData.fcmToken; // Ensure 'fcmToken' exists in the user's document
+    const title = custom?.title || "Congratulations";
+    const description =
+      custom?.description || "Your Account Has Been Verified Successfully";
     const notificationData = {
-      title: "Congratulation",
-      description: `Your Account Has Been Verified Successfully`,
+      title: title,
+      description: description,
       date: new Date(),
       userId: userId,
       userImage: userData.image,
@@ -940,8 +980,8 @@ const accountNotification = async (userId) => {
     // Prepare the message
     const message = {
       notification: {
-        title: "Congratulation",
-        body: `Your Account Has Been Verified Successfully`,
+        title: title,
+        body: description,
       },
       data: {
         url: userData.image,
