@@ -12,6 +12,7 @@ const Dev_Collections = {
   visit: "prod_visit",
   messages: "prod_messages",
   Story: "prod_Story",
+  Contact: "prod_contact_us",
 };
 const ImageTable = {
   stripe_image: "prod_stripe_image",

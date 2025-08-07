@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Contact Us</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: #121212;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        color: #ffffff;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+      }
+
+      .form-container {
+        background-color: #1e1e1e;
+        padding: 40px;
+        border-radius: 10px;
+        width: 100%;
+        max-width: 600px;
+        box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+      }
+
+      .form-container h2 {
+        text-align: center;
+        margin-bottom: 30px;
+        font-size: 28px;
+        letter-spacing: 1px;
+      }
+
+      label {
+        display: block;
+        margin: 15px 0 5px;
+        font-weight: 500;
+      }
+
+      input[type="text"],
+      input[type="email"],
+      textarea {
+        width: 100%;
+        padding: 12px 15px;
+        background-color: #2b2b2b;
+        border: 1px solid #444;
+        border-radius: 6px;
+        color: white;
+        font-size: 16px;
+        transition: border 0.3s;
+      }
+
+      input:focus,
+      textarea:focus {
+        border-color: #007bff;
+        outline: none;
+      }
+
+      textarea {
+        resize: vertical;
+        min-height: 120px;
+      }
+
+      button {
+        margin-top: 25px;
+        width: 100%;
+        padding: 14px;
+        background-color: #007bff;
+        border: none;
+        color: white;
+        font-size: 16px;
+        font-weight: bold;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+      }
+
+      button:disabled {
+        background-color: #555;
+        cursor: not-allowed;
+      }
+
+      .required {
+        color: red;
+        margin-left: 2px;
+      }
+
+      #loader {
+        display: none;
+        text-align: center;
+        margin-top: 10px;
+      }
+
+      .spinner {
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #007bff;
+        border-radius: 50%;
+        width: 24px;
+        height: 24px;
+        animation: spin 1s linear infinite;
+        display: inline-block;
+      }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+
+      #responseMessage {
+        margin-top: 15px;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="form-container">
+      <h2>CONTACT US</h2>
+      <form id="contactForm">
+        <label for="name">Name<span class="required">*</span></label>
+        <input type="text" id="name" name="name" required />
+
+        <label for="email">Email<span class="required">*</span></label>
+        <input type="email" id="email" name="email" required />
+
+        <label for="message">Message<span class="required">*</span></label>
+        <textarea id="message" name="message" required></textarea>
+
+        <button type="submit" id="submitBtn">Submit</button>
+        <div id="loader"><span class="spinner"></span></div>
+      </form>
+      <p id="responseMessage"></p>
+    </div>
+
+    <script>
+      const form = document.getElementById("contactForm");
+      const responseMessage = document.getElementById("responseMessage");
+      const loader = document.getElementById("loader");
+      const submitBtn = document.getElementById("submitBtn");
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+
+        const name = form.name.value.trim();
+        const email = form.email.value.trim();
+        const message = form.message.value.trim();
+
+        responseMessage.textContent = "";
+        responseMessage.style.color = "white";
+        loader.style.display = "block";
+        submitBtn.disabled = true;
+
+        try {
+          const res = await fetch("/submit-contact", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ name, email, message }),
+          });
+
+          const data = await res.json();
+
+          if (!res.ok) {
+            throw new Error(data.message || "Failed to submit form.");
+          }
+
+          responseMessage.textContent = data.message;
+          responseMessage.style.color = "lightgreen";
+          form.reset();
+        } catch (err) {
+          responseMessage.textContent = err.message || "Something went wrong.";
+          responseMessage.style.color = "red";
+        } finally {
+          loader.style.display = "none";
+          submitBtn.disabled = false;
+
+          // 🔁 Hide message after 15 seconds
+          setTimeout(() => {
+            responseMessage.textContent = "";
+          }, 15000); // 15000ms = 15 seconds
+        }
+      });
+    </script>
+  </body>
+</html>

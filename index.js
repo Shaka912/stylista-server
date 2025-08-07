@@ -1147,7 +1147,7 @@ app.post("/deleteinfoaccount", async (req, res) => {
 
     const userSnapshot = await fstore
       .collection(Dev_Collections.users)
-      .where("email", "==", email)
+      .where("email", "==", email.toLowerCase())
       .get();
 
     if (userSnapshot.empty) {
@@ -1185,6 +1185,58 @@ app.post("/deleteinfoaccount", async (req, res) => {
     return res.status(400).json({
       message: "Something Went Wrong",
       status: 400,
+    });
+  }
+});
+app.get("/contact", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "contact.html"));
+});
+// Contact form POST
+app.post("/submit-contact", async (req, res) => {
+  try {
+    const { name, email, message } = req.body;
+
+    // Validate fields
+    if (!name || !email || !message) {
+      return res.status(400).json({
+        success: false,
+        message: "All fields are required.",
+      });
+    }
+
+    // Check if email exists in users collection
+    const userSnapshot = await fstore
+      .collection(Dev_Collections.users)
+      .where("email", "==", email.toLowerCase())
+      .get();
+
+    let is_member = false;
+
+    if (!userSnapshot.empty) {
+      is_member = true;
+    }
+
+    // Prepare data
+    const requestData = {
+      name,
+      email,
+      message,
+      is_member,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    // Save to contact collection
+    await fstore.collection(Dev_Collections.Contact).add(requestData);
+
+    return res.status(200).json({
+      success: true,
+      message: "Your message has been received.",
+    });
+  } catch (error) {
+    console.error("🔥 Error saving contact form:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong while submitting the form.",
     });
   }
 });
