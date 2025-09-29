@@ -1287,8 +1287,7 @@ app.post("/apple-login", async (req, res) => {
       return res.status(400).send({
         email,
         message: "User Not Available",
-        status: false,
-        status: 200,
+        status: 400,
         find: false,
       });
     }
@@ -1298,7 +1297,6 @@ app.post("/apple-login", async (req, res) => {
     return res.status(200).send({
       email,
       message: "User Available",
-      status: true,
       status: 200,
       find: true,
     });
@@ -1307,17 +1305,21 @@ app.post("/apple-login", async (req, res) => {
     console.error("Token validation error:", error);
 
     if (error.message.includes("Invalid key identifier")) {
-      return res
-        .status(400)
-        .json({ error: "Invalid key identifier", status: 400 });
+      return res.status(400).json({
+        message: "Invalid key identifier",
+        status: 400,
+      });
     } else if (error.message.includes("Invalid audience")) {
+      return res.status(400).json({
+        message: "Invalid audience (client ID)",
+        status: 400,
+      });
+    } else if (error.message.includes("Expired token")) {
       return res
         .status(400)
-        .json({ error: "Invalid audience (client ID)", status: 400 });
-    } else if (error.message.includes("Expired token")) {
-      return res.status(400).json({ error: "Token has expired", status: 400 });
+        .json({ message: "Token has expired", status: 400 });
     } else {
-      return res.status(400).json({ error: "Invalid token", status: 400 });
+      return res.status(400).json({ message: "Invalid token", status: 400 });
     }
   }
 });
